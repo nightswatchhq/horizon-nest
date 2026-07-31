@@ -1,6 +1,6 @@
 # horizon-nest
 
-A [nuthatch](https://github.com/nuthatch-indexer/nuthatch) nest indexing **The Graph Protocol Horizon**
+A [nuthatch](https://github.com/nightswatchhq/nuthatch) nest indexing **The Graph Protocol Horizon**
 staking activity on **Arbitrum One** — operators, allocations, delegations, per-indexer totals, and
 daily/hourly aggregations — from three contracts, with a parity check against the community subgraph
 it mirrors.
@@ -13,7 +13,7 @@ it mirrors.
 ## Use it
 
 ```sh
-nuthatch init --from https://github.com/nuthatch-indexer/horizon-nest
+nuthatch init --from https://github.com/nightswatchhq/horizon-nest
 nuthatch dev --dir horizon-nest
 # then, in another shell:
 curl 'localhost:8288/sql?q=SELECT * FROM indexers ORDER BY CAST(rewards AS HUGEINT) DESC LIMIT 10'
