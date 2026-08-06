@@ -2,6 +2,18 @@
 name = "horizon"
 chain = "arbitrum-one"
 chain_id = 42161
+# WARNING, measured 2026-08-06: these public endpoints silently CAP wide `eth_getLogs` ranges and
+# answer `[]` instead of erroring. A 5M-block query for `AllocationCreated` returns 10,783 logs on a
+# real endpoint and ZERO on arb1.arbitrum.io. A backfill trusting them produces a nest that reports
+# itself synced and holds nothing, which is the exact failure this nest exists to make visible.
+#
+# They are kept as a fallback for tip-following, where narrow ranges are fine. For any backfill,
+# override with a capable endpoint:
+#
+#     nuthatch dev --dir horizon-nest --rpc https://your-archive-endpoint
+#
+# `--rpc` is tried ahead of everything below. Do not commit a personal endpoint here; this repo is
+# public and an unauthenticated RPC URL in it is an invitation.
 rpc_urls = [
     "https://arb1.arbitrum.io/rpc",
     "https://arbitrum-one-rpc.publicnode.com",
@@ -21,6 +33,22 @@ alias = "service"
 address = "0xb2bb92d0de618878e438b55d5846cfecd9301105"
 start_block = 397492865
 abi = "abis/service.json"
+
+[[contracts]]
+# GraphTallyCollector — TAP settlement. `RAVCollected` and `PaymentCollected` give realised query
+# fees per (payer, data service, receiver) straight from the chain, with nobody self-reporting.
+# This is the half of QoS that active probing cannot produce: a probe knows what a query cost us,
+# never what the network actually paid an indexer.
+#
+# Same contract the Lodestar Oracle's own TAP receipts are signed against, so the fees it indexes
+# include ours.
+#
+# start_block bisected to the contract's first log (first activity falls in 399485933..399589294);
+# rounded down to a safe boundary rather than guessed.
+alias = "tally"
+address = "0x8f69f5c07477ac46fbc491b1e6d91e2bb0111a9e"
+start_block = 399485933
+abi = "abis/tally.json"
 
 [[contracts]]
 alias = "extension"
