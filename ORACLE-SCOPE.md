@@ -46,23 +46,37 @@ SubgraphService `0xb2Bb92d0DE618878E438b55D5846cfecD9301105` — the same addres
 already name as `data_service`. GraphTallyCollector `0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e` —
 the same contract our receipts are signed against.
 
-## The one thing NOT solved: indexer service URLs
+## Indexer service URLs — SOLVED, after a false negative
 
-Paid probing needs somewhere to send the query. `active_allocation.indexer_url` currently comes from
-the network subgraph's `indexer { url }`, via the gateway.
+**Correction to the first version of this document**, which said URLs were not on-chain and that the
+gateway dependency therefore could not be fully removed. That was wrong, and wrong for the same
+reason described in the next section.
 
-Checked and **not** found:
-- `ServiceProviderRegistered(address,bytes)` — zero events from the SubgraphService deploy block
-  (397,492,865) across 6.5M blocks scanned in 500k chunks.
-- `ServiceStarted(address,bytes)` — fires constantly, but the `bytes` blob decodes to allocation
-  parameters (bytes32s and addresses), not a URL.
+`ServiceProviderRegistered(address indexed serviceProvider, bytes data)` fires **139 times** across
+SubgraphService history. The `data` blob is `abi.encode(string url, string geohash)`:
 
-So **the gateway dependency cannot be fully removed until we find where Horizon stores the service
-URL.** Candidates not yet checked: a legacy `ServiceRegistry` contract, the `extension` contract
-already in this nest (`0x3be385576d7c282070ad91bf94366de9f9ba3571`), or an off-chain registry.
+```
+indexer 0xedca8740873152ff30a2696add66d1ab41882beb
+  url     https://indexer1.subgraphs.riv-dev1.pinax.io/
+  geohash f25dyhdh2
+```
 
-Until then the honest framing is: nuthatch removes the gateway from the *allocation set* and gives
-us *fees we cannot currently measure at all*, but one gateway call for URLs remains.
+I had concluded "zero registrations, URLs are not on chain" from a public RPC that silently capped
+the range and answered `[]`. Against an RPC that actually serves wide ranges, they are all there.
+
+Two notes for the view that consumes this:
+
+- **Latest-wins per indexer.** 139 registrations across roughly 60 indexers means operators
+  re-register when their endpoint moves. The example above is `riv-dev1.pinax.io`, while the same
+  indexer currently serves from `indexer1.subgraphs.pinax.network` — so an early registration is
+  not the current URL. Fold these exactly as `views/20-allocations.sql` folds allocation events.
+- A URL that is on-chain but stale is still a URL we will send paid probes to. If a probe fails
+  against a registered endpoint, that is a real finding about the registration, not necessarily
+  about the operator — worth distinguishing before it reaches a grade.
+
+With this, **every input the oracle currently takes from Edge & Node's gateway is available from the
+chain**: the allocation set, indexer URLs, and query fees. The gateway is then needed only for the
+peer-comparison feed, which is deliberate.
 
 ## Trap found while scoping, which the nest work must respect
 
@@ -76,7 +90,13 @@ that reports itself synced and holds no data.
 
 nuthatch already anticipates this — `nuthatch probe` exists to measure an endpoint's max `eth_getLogs`
 width before trusting a backfill to it (`src/cli.rs`). **Run it before any backfill, and treat an
-empty result over a wide range as a red flag rather than an answer.**
+empty result over a wide range as a red flag rather than an answer.** The binary at
+`~/.local/bin/nuthatch` predates the subcommand and does not have it yet; rebuild from HEAD.
+
+Measured for the record. `https://petko-rpc.infradao.tech/arbitrum` serves `AllocationCreated` at
+78 / 2,891 / 10,783 logs for 100k / 1M / 5M-block windows. `https://arb1.arbitrum.io/rpc` returns
+**zero** for the same 5M window. Use the InfraDAO endpoint for this nest; the public one is not
+merely slower, it is silently wrong.
 
 ## Proposed work, in value order
 
@@ -85,8 +105,8 @@ empty result over a wide range as a red flag rather than an answer.**
    it is currently unbuilt.
 2. **Deploy the nest on a VPS.** Helsinki (89.167.109.4) is now empty — 114G free, all containers
    stopped — and already has Caddy fronting it.
-3. **Point Foghorn's allocation sync at the nest** instead of the gateway, keeping the gateway only
-   for URLs until that gap closes.
+3. **Point Foghorn's allocation sync at the nest** instead of the gateway — allocations AND URLs,
+   both of which the nest can now serve.
 4. **Fill `avg_query_fee` / `total_query_fees`** in `foghorn_qos` from `QueryFeesCollected`, and
    change the page's "always null, unmeasured" line to the real figure.
 5. Optional: stake and provision data from the `staking` contract, replacing the Lodestar profile
