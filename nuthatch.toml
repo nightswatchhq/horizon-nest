@@ -2,23 +2,33 @@
 name = "horizon"
 chain = "arbitrum-one"
 chain_id = 42161
-# WARNING, measured 2026-08-06: these public endpoints silently CAP wide `eth_getLogs` ranges and
-# answer `[]` instead of erroring. A 5M-block query for `AllocationCreated` returns 10,783 logs on a
-# real endpoint and ZERO on arb1.arbitrum.io. A backfill trusting them produces a nest that reports
-# itself synced and holds nothing, which is the exact failure this nest exists to make visible.
+# RPC endpoints, measured 2026-08-06 against this nest's actual workload.
 #
-# They are kept as a fallback for tip-following, where narrow ranges are fine. For any backfill,
-# override with a capable endpoint:
+# TWO SEPARATE HAZARDS, and they need different handling.
 #
-#     nuthatch dev --dir horizon-nest --rpc https://your-archive-endpoint
+# 1. Silent capping. `arb1.arbitrum.io` answers `[]` instead of erroring when a range is too wide:
+#    a 5M-block `AllocationCreated` query returns ZERO there and 10,783 on a real endpoint. A
+#    backfill trusting that produces a nest which reports itself synced and holds nothing. It is
+#    FINE at the 100k windows seal-direct actually uses, which is why it stays here — but never
+#    widen a range against it and believe an empty answer.
+#
+# 2. Endpoints that always fail burn the retry budget. `arb-pokt.nodies.app` (403),
+#    `arbitrum-one-rpc.publicnode.com` (403) and `arbitrum.drpc.org` (400) refused every single
+#    request for this contract. With five attempts per window and three guaranteed failures in
+#    rotation, a window that a good endpoint would serve on retry instead exhausts its attempts and
+#    kills the backfill. They are removed rather than demoted: a fallback that cannot succeed is not
+#    a fallback.
+#
+# For a from-deployment backfill, override with an endpoint you control:
+#
+#     nuthatch dev --dir horizon-nest --rpc https://your-archive-endpoint --concurrency 1
 #
 # `--rpc` is tried ahead of everything below. Do not commit a personal endpoint here; this repo is
-# public and an unauthenticated RPC URL in it is an invitation.
+# public and an unauthenticated RPC URL in it is an invitation. Note that a private endpoint may
+# still rate-limit: ours answers HTTP 403 (not 429) above concurrency 1-2, which reads like an auth
+# failure and is not.
 rpc_urls = [
     "https://arb1.arbitrum.io/rpc",
-    "https://arbitrum-one-rpc.publicnode.com",
-    "https://arbitrum.drpc.org",
-    "https://arb-pokt.nodies.app",
 ]
 schema_version = 1
 
